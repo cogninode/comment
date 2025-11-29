@@ -1,978 +1,3 @@
-# import aiohttp
-# import asyncio
-# import json
-# import time
-# import csv
-# import re
-# import uuid
-# from datetime import datetime
-# from urllib.parse import quote
-# import pandas as pd
-
-# INSTAGRAM_APP_ID = "936619743392459"
-
-# # ====== ADD YOUR INSTAGRAM CREDENTIALS HERE ======
-# INSTAGRAM_USERNAME = "lobosi2727"
-# INSTAGRAM_PASSWORD = "Janmejaya@123"
-# # ==================================================
-
-
-# class InstagramCommentScraperFixed:
-#     def __init__(self, username, password):
-#         self.username = username
-#         self.password = password
-#         self.session_id = None
-#         self.csrf_token = None
-#         self.cookies = {}
-#         self.scraped_users = {}
-
-#     def get_headers(self):
-#         headers = {
-#             "x-ig-app-id": INSTAGRAM_APP_ID,
-#             "User-Agent": (
-#                 "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
-#                 "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
-#             ),
-#             "Accept": "*/*",
-#             "Accept-Language": "en-US,en;q=0.9",
-#             "X-Requested-With": "XMLHttpRequest",
-#             "Origin": "https://www.instagram.com",
-#             "Referer": "https://www.instagram.com/",
-#         }
-#         if self.csrf_token:
-#             headers["X-CSRFToken"] = self.csrf_token
-#         return headers
-
-#     async def login(self):
-#         print("=" * 60)
-#         print("🔐 Logging in to Instagram...")
-#         print("=" * 60)
-
-#         connector = aiohttp.TCPConnector(ssl=False)
-#         timeout = aiohttp.ClientTimeout(total=30)
-
-#         async with aiohttp.ClientSession(connector=connector, timeout=timeout) as session:
-#             # 1) Open login page to grab csrftoken + base cookies
-#             async with session.get(
-#                 "https://www.instagram.com/accounts/login/",
-#                 headers=self.get_headers()
-#             ) as resp:
-#                 if resp.status != 200:
-#                     print(f"❌ Failed to open login page: {resp.status}")
-#                     return False
-
-#                 # store cookies from this response
-#                 for cookie in resp.cookies.values():
-#                     self.cookies[cookie.key] = cookie.value
-
-#                 self.csrf_token = self.cookies.get("csrftoken")
-
-#             if not self.csrf_token:
-#                 print("❌ Failed to retrieve CSRF token")
-#                 return False
-
-#             timestamp = int(time.time())
-#             enc_password = f"#PWD_INSTAGRAM_BROWSER:0:{timestamp}:{self.password}"
-
-#             payload = {
-#                 "username": self.username,
-#                 "enc_password": enc_password,
-#                 "queryParams": "{}",
-#                 "optIntoOneTap": "false"
-#             }
-
-#             headers = self.get_headers()
-#             headers["Content-Type"] = "application/x-www-form-urlencoded"
-
-#             async with session.post(
-#                 "https://www.instagram.com/accounts/login/ajax/",
-#                 data=payload,
-#                 headers=headers
-#             ) as resp:
-#                 if resp.status != 200:
-#                     print(f"❌ Login failed: HTTP {resp.status}")
-#                     text = await resp.text()
-#                     print(text[:300])
-#                     return False
-
-#                 data = await resp.json()
-#                 if not data.get("authenticated"):
-#                     print(f"❌ Login failed payload: {data}")
-#                     return False
-
-#                 # merge cookies from login response
-#                 for cookie in resp.cookies.values():
-#                     self.cookies[cookie.key] = cookie.value
-
-#                 self.session_id = self.cookies.get("sessionid")
-#                 self.csrf_token = self.cookies.get("csrftoken", self.csrf_token)
-
-#                 if not self.session_id:
-#                     print("❌ Login response had no sessionid cookie")
-#                     return False
-
-#                 print(f"✅ Login successful as {self.username}")
-#                 print(f"Session ID: {self.session_id[:20]}...")
-#                 return True
-
-#     def extract_emails_from_bio(self, text):
-#         if not text:
-#             return []
-#         return re.findall(r"[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}", text)
-
-#     def extract_phones_from_bio(self, text):
-#         if not text:
-#             return []
-#         pattern = r'\+?\d{1,4}?[-.\s]?\(?\d{1,3}\)?[-.\s]?\d{1,4}[-.\s]?\d{1,9}'
-#         return re.findall(pattern, text)
-
-#     def create_empty_profile(self, username):
-#         """Return a default profile dict when lookup fails."""
-#         return {
-#             "username": username,
-#             "email": "",
-#             "phone": "",
-#             "madid": str(uuid.uuid4()),
-#             "fn": "",
-#             "ln": "",
-#             "zip": "",
-#             "ct": "",
-#             "st": "",
-#             "country": "",
-#             "dob": "",
-#             "doby": "",
-#             "gen": "",
-#             "age": "",
-#             "uid": "",
-#             "value": "",
-#             "fbid": ""
-#         }
-
-#     async def get_user_profile(self, session, username, semaphore):
-#         async with semaphore:
-#             if username in self.scraped_users:
-#                 return self.scraped_users[username]
-
-#             url = f"https://www.instagram.com/api/v1/users/web_profile_info/?username={username}"
-#             try:
-#                 async with session.get(url, headers=self.get_headers()) as resp:
-#                     if resp.status != 200:
-#                         print(f"⚠️ Skipped {username} (status {resp.status})")
-#                         profile = self.create_empty_profile(username)
-#                         self.scraped_users[username] = profile
-#                         return profile
-
-#                     data = await resp.json()
-#                     user = data.get("data", {}).get("user", {})
-#                     if not user:
-#                         profile = self.create_empty_profile(username)
-#                         self.scraped_users[username] = profile
-#                         return profile
-
-#                     bio = user.get("biography", "") or ""
-#                     bio_emails = self.extract_emails_from_bio(bio)
-#                     bio_phones = self.extract_phones_from_bio(bio)
-
-#                     full_name = (user.get("full_name") or "").strip()
-#                     parts = full_name.split(" ", 1)
-#                     first_name = parts[0] if parts else ""
-#                     last_name = parts[1] if len(parts) > 1 else ""
-
-#                     profile = {
-#                         "username": username,
-#                         "email": ",".join(bio_emails),
-#                         "phone": ",".join(bio_phones),
-#                         "madid": str(uuid.uuid4()),
-#                         "fn": first_name,
-#                         "ln": last_name,
-#                         "zip": "",
-#                         "ct": "",
-#                         "st": "",
-#                         "country": user.get("country_block", ""),
-#                         "dob": "",
-#                         "doby": "",
-#                         "gen": "",
-#                         "age": "",
-#                         "uid": user.get("id", ""),
-#                         "value": "",
-#                         "fbid": user.get("fbid_v2", "")
-#                     }
-
-#                     self.scraped_users[username] = profile
-#                     await asyncio.sleep(1.2)  # be gentle
-#                     return profile
-
-#             except Exception as e:
-#                 print(f"❌ Error fetching {username}: {str(e)}")
-#                 profile = self.create_empty_profile(username)
-#                 self.scraped_users[username] = profile
-#                 return profile
-
-#     def get_post_shortcode(self, url):
-#         parts = url.rstrip("/").split("/")
-#         for i, part in enumerate(parts):
-#             if part in ["p", "reel", "tv"] and i + 1 < len(parts):
-#                 return parts[i + 1].split("?")[0]
-#         return None
-
-#     async def scrape_post_comments(self, shortcode, max_comments=None):
-#         comments, after, has_next = [], None, True
-#         print(f"\n💬 Fetching comments for shortcode: {shortcode}")
-
-#         connector = aiohttp.TCPConnector(ssl=False)
-#         timeout = aiohttp.ClientTimeout(total=30)
-
-#         async with aiohttp.ClientSession(
-#             connector=connector,
-#             timeout=timeout,
-#             cookies=self.cookies
-#         ) as session:
-#             while has_next:
-#                 if max_comments and len(comments) >= max_comments:
-#                     break
-
-#                 variables = {"shortcode": shortcode, "first": 50}
-#                 if after:
-#                     variables["after"] = after
-
-#                 url = (
-#                     "https://www.instagram.com/graphql/query/"
-#                     "?query_hash=bc3296d1ce80a24b1b6e40b1e72903f5"
-#                     f"&variables={quote(json.dumps(variables))}"
-#                 )
-
-#                 async with session.get(url, headers=self.get_headers()) as resp:
-#                     if resp.status != 200:
-#                         print(f"❌ Comment fetch failed: {resp.status}")
-#                         break
-
-#                     data = await resp.json()
-#                     media = data.get("data", {}).get("shortcode_media", {})
-#                     if not media:
-#                         print("❌ No media data in response (maybe private or removed).")
-#                         break
-
-#                     edge_root = media.get("edge_media_to_parent_comment", {})
-#                     edges = edge_root.get("edges", [])
-
-#                     for edge in edges:
-#                         node = edge.get("node", {})
-#                         owner = node.get("owner", {})
-#                         comments.append({
-#                             "uid": owner.get("id", ""),
-#                             "username": owner.get("username", ""),
-#                             "commentText": node.get("text", ""),
-#                             "timestamp": datetime.fromtimestamp(
-#                                 node.get("created_at", 0)
-#                             ).isoformat(),
-#                         })
-
-#                         if max_comments and len(comments) >= max_comments:
-#                             break
-
-#                     page = edge_root.get("page_info", {})
-#                     has_next = page.get("has_next_page", False)
-#                     after = page.get("end_cursor")
-
-#                     print(f"📊 {len(comments)} comments scraped so far...")
-#                     await asyncio.sleep(2)
-
-#         print(f"✅ Total comments: {len(comments)}")
-#         return comments
-
-#     async def scrape_commenters_profiles(self, comments, max_concurrent=5):
-#         usernames = list({c["username"] for c in comments if c.get("username")})
-#         print(f"\n👥 Found {len(usernames)} unique commenters")
-
-#         semaphore = asyncio.Semaphore(max_concurrent)
-#         connector = aiohttp.TCPConnector(ssl=False)
-#         timeout = aiohttp.ClientTimeout(total=30)
-
-#         async with aiohttp.ClientSession(
-#             connector=connector,
-#             timeout=timeout,
-#             cookies=self.cookies
-#         ) as session:
-#             tasks = [self.get_user_profile(session, u, semaphore) for u in usernames]
-#             profiles = await asyncio.gather(*tasks)
-#         return profiles
-
-
-# def save_to_csv(profiles, filename):
-#     if not profiles:
-#         print("❌ No profiles to save.")
-#         return
-
-#     # Step 1: Write profiles to CSV
-#     fieldnames = list(profiles[0].keys())
-#     with open(filename, "w", newline="", encoding="utf-8") as f:
-#         writer = csv.DictWriter(f, fieldnames=fieldnames)
-#         writer.writeheader()
-#         writer.writerows(profiles)
-
-#     # Step 2: Remove first column
-#     df = pd.read_csv(filename)
-#     df = df.iloc[:, 1:]
-#     df.to_csv(filename, index=False)
-
-#     print(f"\n✅ Profiles saved to {filename} (first column removed)")
-
-
-# async def run_scrape_for_post(post_url: str, max_comments: int | None = None):
-#     """
-#     Helper used by Flask to run the whole pipeline and return a summary dict.
-#     """
-#     scraper = InstagramCommentScraperFixed(INSTAGRAM_USERNAME, INSTAGRAM_PASSWORD)
-
-#     ok = await scraper.login()
-#     if not ok:
-#         return {
-#             "ok": False,
-#             "message": "Login failed. Check credentials / 2FA / checkpoint."
-#         }
-
-#     shortcode = scraper.get_post_shortcode(post_url)
-#     if not shortcode:
-#         return {
-#             "ok": False,
-#             "message": "Invalid Instagram post URL."
-#         }
-
-#     comments = await scraper.scrape_post_comments(shortcode, max_comments)
-#     profiles = await scraper.scrape_commenters_profiles(comments, max_concurrent=5)
-
-#     csv_file = f"instagram_{shortcode}_profiles.csv"
-#     json_file = f"instagram_{shortcode}_comments.json"
-
-#     save_to_csv(profiles, csv_file)
-#     with open(json_file, "w", encoding="utf-8") as f:
-#         json.dump(
-#             {"comments": comments, "profiles": profiles},
-#             f,
-#             indent=2,
-#             ensure_ascii=False
-#         )
-
-#     return {
-#         "ok": True,
-#         "message": "Scrape complete.",
-#         "shortcode": shortcode,
-#         "total_comments": len(comments),
-#         "total_profiles": len(profiles),
-#         "csv_file": csv_file,
-#         "json_file": json_file,
-#     }
-
-# import aiohttp
-# import asyncio
-# import json
-# import time
-# import csv
-# import re
-# import uuid
-# import random
-# from datetime import datetime
-# from urllib.parse import quote
-# import pandas as pd
-
-# # ================== INSTAGRAM APP ==================
-# INSTAGRAM_APP_ID = "936619743392459"
-
-# # ================== ACCOUNTS POOL ==================
-# # 🔴 IMPORTANT: PUT YOUR REAL ACCOUNTS HERE
-# INSTAGRAM_ACCOUNTS = [
-#     {"username": "hapiha3446", "password": "Janmejaya@123"},
-#     {"username": "lobosi2727", "password": "Janmejaya@123"},
-#     {"username": "jabona8996", "password": "Janmejaya@123"},
-#     {"username": "ditesov175", "password": "Janmejaya@123"},
-#     # Add as many as you want
-#     # {"username": "lobosi2727", "password": "Janmejaya@123"},
-# ]
-
-# # Track state per account: failures, disabled, last error
-# ACCOUNT_STATE = {}
-
-
-# def init_account_state():
-#     """Initialize state dict for all accounts."""
-#     global ACCOUNT_STATE
-#     ACCOUNT_STATE = {
-#         acc["username"]: {
-#             "fail_count": 0,
-#             "disabled": False,
-#             "last_error": None,
-#         }
-#         for acc in INSTAGRAM_ACCOUNTS
-#     }
-
-
-# init_account_state()
-
-
-# def mark_account_failure(username: str, error_code: str, error_message: str):
-#     """Mark an account as failing; optionally disable it if too many failures."""
-#     state = ACCOUNT_STATE.get(username)
-#     if not state:
-#         return
-
-#     state["fail_count"] += 1
-#     state["last_error"] = f"{error_code}: {error_message}"
-
-#     # Rules to disable:
-#     # - checkpoint / 2FA / suspicious IP / etc.
-#     # - OR 3+ consecutive fails
-#     error_code = (error_code or "").lower()
-#     suspicious_keywords = [
-#         "checkpoint",
-#         "two_factor",
-#         "2fa",
-#         "suspicious",
-#         "challenge",
-#         "login_required",
-#         "ip_block",
-#         "proxy",
-#     ]
-#     should_disable = (
-#         any(k in error_code for k in suspicious_keywords)
-#         or any(k in (error_message or "").lower() for k in suspicious_keywords)
-#         or state["fail_count"] >= 3
-#     )
-
-#     if should_disable:
-#         state["disabled"] = True
-#         print(f"🚫 Disabling account {username} due to repeated/blocking errors.")
-
-
-# def reset_all_accounts():
-#     """Re-enable all accounts (used if all become disabled)."""
-#     for u, st in ACCOUNT_STATE.items():
-#         st["disabled"] = False
-#         st["fail_count"] = 0
-#         st["last_error"] = None
-#     print("🔄 All accounts re-enabled (all were disabled).")
-
-
-# def get_random_account():
-#     """Pick a random, non-disabled account. If all disabled → reset once."""
-#     active_accounts = [
-#         acc for acc in INSTAGRAM_ACCOUNTS
-#         if not ACCOUNT_STATE.get(acc["username"], {}).get("disabled", False)
-#     ]
-
-#     if not active_accounts:
-#         # all accounts disabled; reset & try again
-#         reset_all_accounts()
-#         active_accounts = INSTAGRAM_ACCOUNTS[:]
-
-#     acc = random.choice(active_accounts)
-#     username = acc["username"]
-#     password = acc["password"]
-#     print(f"🎯 Selected account for this run: {username}")
-#     return username, password
-
-
-# # ================== PROXY CONFIG ==================
-# # 🔴 IMPORTANT: PUT YOUR REAL PROXY CREDS HERE
-# PROXY_USER = "7666f3d986239b03740f"  # your proxy login
-# PROXY_PASS = "dadc72a9517e4335"      # your proxy password
-# PROXY_HOST = "gw.dataimpulse.com"
-# PROXY_PORT = 823
-
-# # If you want to disable proxy, set PROXY_URL = None
-# PROXY_URL = f"http://{PROXY_USER}:{PROXY_PASS}@{PROXY_HOST}:{PROXY_PORT}"
-
-
-# def proxy_kwargs():
-#     """Return kwargs for aiohttp requests if proxy is enabled."""
-#     if PROXY_URL:
-#         return {"proxy": PROXY_URL}
-#     return {}
-
-
-# # ================== SCRAPER CLASS ==================
-
-
-# class InstagramCommentScraperFixed:
-#     def __init__(self, username, password):
-#         self.username = username
-#         self.password = password
-#         self.session_id = None
-#         self.csrf_token = None
-#         self.cookies = {}
-#         self.scraped_users = {}
-
-#     def get_headers(self):
-#         headers = {
-#             "x-ig-app-id": INSTAGRAM_APP_ID,
-#             "User-Agent": (
-#                 "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
-#                 "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
-#             ),
-#             "Accept": "*/*",
-#             "Accept-Language": "en-US,en;q=0.9",
-#             "X-Requested-With": "XMLHttpRequest",
-#             "Origin": "https://www.instagram.com",
-#             "Referer": "https://www.instagram.com/",
-#         }
-#         if self.csrf_token:
-#             headers["X-CSRFToken"] = self.csrf_token
-#         return headers
-
-#     async def login(self):
-#         """
-#         Try to log in with the current account.
-#         Returns dict: {ok: bool, error_code: str|None, message: str}
-#         """
-#         print("=" * 60)
-#         print(f"🔐 Logging in to Instagram USING PROXY as {self.username}...")
-#         print("=" * 60)
-
-#         connector = aiohttp.TCPConnector(ssl=False)
-#         timeout = aiohttp.ClientTimeout(total=30)
-
-#         try:
-#             async with aiohttp.ClientSession(
-#                 connector=connector,
-#                 timeout=timeout,
-#                 trust_env=True
-#             ) as session:
-#                 # ---- STEP 1: GET LOGIN PAGE ----
-#                 try:
-#                     async with session.get(
-#                         "https://www.instagram.com/accounts/login/",
-#                         headers=self.get_headers(),
-#                         **proxy_kwargs(),
-#                     ) as resp:
-#                         if resp.status != 200:
-#                             msg = f"Failed to open login page: HTTP {resp.status}"
-#                             print("❌", msg)
-#                             return {"ok": False, "error_code": "http_error", "message": msg}
-
-#                         # store initial cookies
-#                         for cookie in resp.cookies.values():
-#                             self.cookies[cookie.key] = cookie.value
-
-#                         self.csrf_token = self.cookies.get("csrftoken")
-
-#                 except Exception as e:
-#                     msg = f"Exception opening login page: {repr(e)}"
-#                     print("❌", msg)
-#                     return {"ok": False, "error_code": "network_error", "message": msg}
-
-#                 if not self.csrf_token:
-#                     msg = "Failed to retrieve CSRF token"
-#                     print("❌", msg)
-#                     return {"ok": False, "error_code": "no_csrf", "message": msg}
-
-#                 timestamp = int(time.time())
-#                 enc_password = f"#PWD_INSTAGRAM_BROWSER:0:{timestamp}:{self.password}"
-
-#                 payload = {
-#                     "username": self.username,
-#                     "enc_password": enc_password,
-#                     "queryParams": "{}",
-#                     "optIntoOneTap": "false"
-#                 }
-
-#                 headers = self.get_headers()
-#                 headers["Content-Type"] = "application/x-www-form-urlencoded"
-
-#                 # ---- STEP 2: LOGIN POST ----
-#                 try:
-#                     async with session.post(
-#                         "https://www.instagram.com/accounts/login/ajax/",
-#                         data=payload,
-#                         headers=headers,
-#                         **proxy_kwargs(),
-#                     ) as resp:
-#                         text = await resp.text()
-#                         http_status = resp.status
-
-#                         # Try parse JSON if possible
-#                         try:
-#                             data = json.loads(text)
-#                         except Exception:
-#                             data = {}
-
-#                         if http_status != 200:
-#                             msg = f"Login HTTP error: {http_status} body={text[:400]}"
-#                             print("❌", msg)
-#                             error_code = data.get("message") or "http_error"
-#                             return {
-#                                 "ok": False,
-#                                 "error_code": error_code,
-#                                 "message": msg,
-#                             }
-
-#                         # Instagram specific flags
-#                         if data.get("two_factor_required"):
-#                             msg = "Two-factor required for this account."
-#                             print("❌", msg)
-#                             return {
-#                                 "ok": False,
-#                                 "error_code": "two_factor_required",
-#                                 "message": msg,
-#                             }
-
-#                         if data.get("message") == "checkpoint_required":
-#                             msg = f"Checkpoint required. Data: {data}"
-#                             print("❌", msg)
-#                             return {
-#                                 "ok": False,
-#                                 "error_code": "checkpoint_required",
-#                                 "message": msg,
-#                             }
-
-#                         if not data.get("authenticated"):
-#                             msg = f"Not authenticated: {data}"
-#                             print("❌", msg)
-#                             return {
-#                                 "ok": False,
-#                                 "error_code": "not_authenticated",
-#                                 "message": msg,
-#                             }
-
-#                         # Merge cookies, get sessionid
-#                         for cookie in resp.cookies.values():
-#                             self.cookies[cookie.key] = cookie.value
-
-#                         self.session_id = self.cookies.get("sessionid")
-#                         self.csrf_token = self.cookies.get("csrftoken", self.csrf_token)
-
-#                         if not self.session_id:
-#                             msg = "Login OK but no sessionid cookie."
-#                             print("❌", msg)
-#                             return {
-#                                 "ok": False,
-#                                 "error_code": "no_sessionid",
-#                                 "message": msg,
-#                             }
-
-#                         print(f"✅ Login successful as {self.username}")
-#                         print(f"Session ID: {self.session_id[:20]}...")
-#                         return {"ok": True, "error_code": None, "message": "login_ok"}
-
-#                 except Exception as e:
-#                     msg = f"Exception during login POST: {repr(e)}"
-#                     print("❌", msg)
-#                     return {
-#                         "ok": False,
-#                         "error_code": "network_error",
-#                         "message": msg,
-#                     }
-
-#         except Exception as e:
-#             msg = f"Fatal login session error: {repr(e)}"
-#             print("❌", msg)
-#             return {
-#                 "ok": False,
-#                 "error_code": "session_error",
-#                 "message": msg,
-#             }
-
-#     def extract_emails_from_bio(self, text):
-#         if not text:
-#             return []
-#         return re.findall(r"[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}", text)
-
-#     def extract_phones_from_bio(self, text):
-#         if not text:
-#             return []
-#         pattern = r'\+?\d{1,4}?[-.\s]?\(?\d{1,3}\)?[-.\s]?\d{1,4}[-.\s]?\d{1,9}'
-#         return re.findall(pattern, text)
-
-#     def create_empty_profile(self, username):
-#         return {
-#             "username": username,
-#             "email": "",
-#             "phone": "",
-#             "madid": str(uuid.uuid4()),
-#             "fn": "",
-#             "ln": "",
-#             "zip": "",
-#             "ct": "",
-#             "st": "",
-#             "country": "",
-#             "dob": "",
-#             "doby": "",
-#             "gen": "",
-#             "age": "",
-#             "uid": "",
-#             "value": "",
-#             "fbid": ""
-#         }
-
-#     async def get_user_profile(self, session, username, semaphore):
-#         async with semaphore:
-#             if username in self.scraped_users:
-#                 return self.scraped_users[username]
-
-#             url = f"https://www.instagram.com/api/v1/users/web_profile_info/?username={username}"
-#             try:
-#                 async with session.get(
-#                     url,
-#                     headers=self.get_headers(),
-#                     **proxy_kwargs(),
-#                 ) as resp:
-#                     if resp.status != 200:
-#                         print(f"⚠️ Skipped {username} (status {resp.status})")
-#                         profile = self.create_empty_profile(username)
-#                         self.scraped_users[username] = profile
-#                         return profile
-
-#                     data = await resp.json()
-#                     user = data.get("data", {}).get("user", {})
-#                     if not user:
-#                         profile = self.create_empty_profile(username)
-#                         self.scraped_users[username] = profile
-#                         return profile
-
-#                     bio = user.get("biography", "") or ""
-#                     bio_emails = self.extract_emails_from_bio(bio)
-#                     bio_phones = self.extract_phones_from_bio(bio)
-
-#                     full_name = (user.get("full_name") or "").strip()
-#                     parts = full_name.split(" ", 1)
-#                     first_name = parts[0] if parts else ""
-#                     last_name = parts[1] if len(parts) > 1 else ""
-
-#                     profile = {
-#                         "username": username,
-#                         "email": ",".join(bio_emails),
-#                         "phone": ",".join(bio_phones),
-#                         "madid": str(uuid.uuid4()),
-#                         "fn": first_name,
-#                         "ln": last_name,
-#                         "zip": "",
-#                         "ct": "",
-#                         "st": "",
-#                         "country": user.get("country_block", ""),
-#                         "dob": "",
-#                         "doby": "",
-#                         "gen": "",
-#                         "age": "",
-#                         "uid": user.get("id", ""),
-#                         "value": "",
-#                         "fbid": user.get("fbid_v2", "")
-#                     }
-
-#                     self.scraped_users[username] = profile
-#                     await asyncio.sleep(1.2)  # be gentle
-#                     return profile
-
-#             except Exception as e:
-#                 print(f"❌ Error fetching {username}: {repr(e)}")
-#                 profile = self.create_empty_profile(username)
-#                 self.scraped_users[username] = profile
-#                 return profile
-
-#     def get_post_shortcode(self, url):
-#         parts = url.rstrip("/").split("/")
-#         for i, part in enumerate(parts):
-#             if part in ["p", "reel", "tv"] and i + 1 < len(parts):
-#                 return parts[i + 1].split("?")[0]
-#         return None
-
-#     async def scrape_post_comments(self, shortcode, max_comments=None):
-#         comments, after, has_next = [], None, True
-#         print(f"\n💬 Fetching comments for shortcode: {shortcode}")
-
-#         connector = aiohttp.TCPConnector(ssl=False)
-#         timeout = aiohttp.ClientTimeout(total=30)
-
-#         try:
-#             async with aiohttp.ClientSession(
-#                 connector=connector,
-#                 timeout=timeout,
-#                 cookies=self.cookies,
-#                 trust_env=True
-#             ) as session:
-#                 while has_next:
-#                     if max_comments and len(comments) >= max_comments:
-#                         break
-
-#                     variables = {"shortcode": shortcode, "first": 50}
-#                     if after:
-#                         variables["after"] = after
-
-#                     url = (
-#                         "https://www.instagram.com/graphql/query/"
-#                         "?query_hash=bc3296d1ce80a24b1b6e40b1e72903f5"
-#                         f"&variables={quote(json.dumps(variables))}"
-#                     )
-
-#                     try:
-#                         async with session.get(
-#                             url,
-#                             headers=self.get_headers(),
-#                             **proxy_kwargs(),
-#                         ) as resp:
-#                             if resp.status != 200:
-#                                 print(f"❌ Comment fetch failed: {resp.status}")
-#                                 break
-
-#                             data = await resp.json()
-#                             media = data.get("data", {}).get("shortcode_media", {})
-#                             if not media:
-#                                 print("❌ No media data in response (maybe private or removed).")
-#                                 break
-
-#                             edge_root = media.get("edge_media_to_parent_comment", {})
-#                             edges = edge_root.get("edges", [])
-
-#                             for edge in edges:
-#                                 node = edge.get("node", {})
-#                                 owner = node.get("owner", {})
-#                                 comments.append({
-#                                     "uid": owner.get("id", ""),
-#                                     "username": owner.get("username", ""),
-#                                     "commentText": node.get("text", ""),
-#                                     "timestamp": datetime.fromtimestamp(
-#                                         node.get("created_at", 0)
-#                                     ).isoformat(),
-#                                 })
-
-#                                 if max_comments and len(comments) >= max_comments:
-#                                     break
-
-#                             page = edge_root.get("page_info", {})
-#                             has_next = page.get("has_next_page", False)
-#                             after = page.get("end_cursor")
-
-#                             print(f"📊 {len(comments)} comments scraped so far...")
-#                             await asyncio.sleep(2)
-
-#                     except Exception as e:
-#                         print(f"❌ Error while fetching comments page: {repr(e)}")
-#                         break
-
-#         except Exception as e:
-#             print(f"❌ Fatal error in scrape_post_comments: {repr(e)}")
-
-#         print(f"✅ Total comments: {len(comments)}")
-#         return comments
-
-#     async def scrape_commenters_profiles(self, comments, max_concurrent=5):
-#         usernames = list({c["username"] for c in comments if c.get("username")})
-#         print(f"\n👥 Found {len(usernames)} unique commenters")
-
-#         semaphore = asyncio.Semaphore(max_concurrent)
-#         connector = aiohttp.TCPConnector(ssl=False)
-#         timeout = aiohttp.ClientTimeout(total=60)
-
-#         async with aiohttp.ClientSession(
-#             connector=connector,
-#             timeout=timeout,
-#             cookies=self.cookies,
-#             trust_env=True
-#         ) as session:
-#             tasks = [self.get_user_profile(session, u, semaphore) for u in usernames]
-#             profiles = await asyncio.gather(*tasks)
-#         return profiles
-
-
-# # ================== OUTPUT HELPERS ==================
-
-
-# def save_to_csv(profiles, filename):
-#     if not profiles:
-#         print("❌ No profiles to save.")
-#         return
-
-#     fieldnames = list(profiles[0].keys())
-#     with open(filename, "w", newline="", encoding="utf-8") as f:
-#         writer = csv.DictWriter(f, fieldnames=fieldnames)
-#         writer.writeheader()
-#         writer.writerows(profiles)
-
-#     df = pd.read_csv(filename)
-#     df = df.iloc[:, 1:]
-#     df.to_csv(filename, index=False)
-
-#     print(f"\n✅ Profiles saved to {filename} (first column removed)")
-
-
-# # ================== MAIN PIPELINE ==================
-
-
-# async def run_scrape_for_post(post_url: str, max_comments: int | None = None):
-#     """
-#     High-level pipeline:
-#       - pick random account (auto-skipping disabled)
-#       - try login; if fail, mark account + optionally try others
-#       - scrape comments + profile data
-#       - write CSV + JSON
-#       - return a clean result dict (safe for Flask)
-#     """
-#     try:
-#         # Try up to N accounts (N = number of accounts)
-#         last_error = None
-
-#         for attempt in range(len(INSTAGRAM_ACCOUNTS)):
-#             username, password = get_random_account()
-#             scraper = InstagramCommentScraperFixed(username, password)
-
-#             login_result = await scraper.login()
-#             if not login_result["ok"]:
-#                 # mark account as failed / maybe disable
-#                 mark_account_failure(
-#                     username,
-#                     login_result.get("error_code") or "login_failed",
-#                     login_result.get("message") or "",
-#                 )
-#                 last_error = f"{username}: {login_result.get('message')}"
-#                 print(f"⚠️ Login failed for {username}, trying another account...")
-#                 continue
-
-#             # ✅ Login OK, proceed
-#             shortcode = scraper.get_post_shortcode(post_url)
-#             if not shortcode:
-#                 return {
-#                     "ok": False,
-#                     "message": "Invalid Instagram post URL.",
-#                 }
-
-#             comments = await scraper.scrape_post_comments(shortcode, max_comments)
-#             profiles = await scraper.scrape_commenters_profiles(comments, max_concurrent=5)
-
-#             csv_file = f"instagram_{shortcode}_profiles.csv"
-#             json_file = f"instagram_{shortcode}_comments.json"
-
-#             save_to_csv(profiles, csv_file)
-#             with open(json_file, "w", encoding="utf-8") as f:
-#                 json.dump(
-#                     {"comments": comments, "profiles": profiles},
-#                     f,
-#                     indent=2,
-#                     ensure_ascii=False
-#                 )
-
-#             return {
-#                 "ok": True,
-#                 "message": f"Scrape complete using account {username}.",
-#                 "shortcode": shortcode,
-#                 "total_comments": len(comments),
-#                 "total_profiles": len(profiles),
-#                 "csv_file": csv_file,
-#                 "json_file": json_file,
-#             }
-
-#         # If we reach here, all accounts failed
-#         return {
-#             "ok": False,
-#             "message": f"All accounts failed to login. Last error: {last_error}",
-#         }
-
-#     except Exception as e:
-#         print(f"❌ Unexpected error in run_scrape_for_post: {repr(e)}")
-#         return {
-#             "ok": False,
-#             "message": f"Unexpected error in scraper: {str(e)}",
-#         }
-
-
-
-
 import aiohttp
 import asyncio
 import json
@@ -980,16 +5,24 @@ import time
 import csv
 import re
 import uuid
-import random
 from datetime import datetime
 from urllib.parse import quote
 import pandas as pd
 
-# ================== INSTAGRAM APP ==================
+import undetected_chromedriver as uc
+from selenium.webdriver.common.by import By
+from selenium.webdriver.support.ui import WebDriverWait
+from selenium.webdriver.support import expected_conditions as EC
+from selenium.common.exceptions import (
+    TimeoutException,
+    NoSuchElementException,
+    WebDriverException,
+    NoSuchWindowException,
+)
+
 INSTAGRAM_APP_ID = "936619743392459"
 
-# ================== ACCOUNTS POOL ==================
-# 🔴 IMPORTANT: PUT YOUR REAL ACCOUNTS HERE
+# ====== MULTI-ACCOUNT SETUP ======
 INSTAGRAM_ACCOUNTS = [
     {"username": "hapiha3446", "password": "Janmejaya@123"},
     {"username": "lobosi2727", "password": "Janmejaya@123"},
@@ -1015,98 +48,58 @@ def init_account_state():
     }
 
 
-init_account_state()
-
-
-def mark_account_failure(username: str, error_code: str, error_message: str):
-    """Mark an account as failing; optionally disable it if too many failures."""
-    state = ACCOUNT_STATE.get(username)
-    if not state:
-        return
-
-    state["fail_count"] += 1
-    state["last_error"] = f"{error_code}: {error_message}"
-
-    # Rules to disable:
-    # - checkpoint / 2FA / suspicious IP / etc.
-    # - OR 3+ consecutive fails
-    error_code = (error_code or "").lower()
-    suspicious_keywords = [
-        "checkpoint",
-        "two_factor",
-        "2fa",
-        "suspicious",
-        "challenge",
-        "login_required",
-        "ip_block",
-        "proxy",
+def get_next_account():
+    """Pick the next enabled account with the lowest fail count."""
+    enabled_accounts = [
+        a for a in INSTAGRAM_ACCOUNTS if not ACCOUNT_STATE[a["username"]]["disabled"]
     ]
-    should_disable = (
-        any(k in error_code for k in suspicious_keywords)
-        or any(k in (error_message or "").lower() for k in suspicious_keywords)
-        or state["fail_count"] >= 3
-    )
-
-    if should_disable:
-        state["disabled"] = True
-        print(f"🚫 Disabling account {username} due to repeated/blocking errors.")
-
-
-def reset_all_accounts():
-    """Re-enable all accounts (used if all become disabled)."""
-    for u, st in ACCOUNT_STATE.items():
-        st["disabled"] = False
-        st["fail_count"] = 0
-        st["last_error"] = None
-    print("🔄 All accounts re-enabled (all were disabled).")
-
-
-def get_random_account():
-    """Pick a random, non-disabled account. If all disabled → reset once."""
-    active_accounts = [
-        acc for acc in INSTAGRAM_ACCOUNTS
-        if not ACCOUNT_STATE.get(acc["username"], {}).get("disabled", False)
-    ]
-
-    if not active_accounts:
-        # all accounts disabled; reset & try again
-        reset_all_accounts()
-        active_accounts = INSTAGRAM_ACCOUNTS[:]
-
-    acc = random.choice(active_accounts)
-    username = acc["username"]
-    password = acc["password"]
-    print(f"🎯 Selected account for this run: {username}")
-    return username, password
-
-
-# ================== PROXY CONFIG ==================
-# 🔴 IMPORTANT: PUT YOUR REAL PROXY CREDS HERE
-PROXY_USER = "7666f3d986239b03740f"  # your proxy login
-PROXY_PASS = "dadc72a9517e4335"      # your proxy password
-PROXY_HOST = "gw.dataimpulse.com"
-PROXY_PORT = 823
-
-# ALWAYS use proxy (as requested)
-PROXY_URL = f"http://{PROXY_USER}:{PROXY_PASS}@{PROXY_HOST}:{PROXY_PORT}"
-
-
-def proxy_kwargs():
-    """Return kwargs for aiohttp requests (proxy always ON)."""
-    return {"proxy": PROXY_URL} if PROXY_URL else {}
-
-
-# ================== SCRAPER CLASS ==================
+    if not enabled_accounts:
+        return None
+    # sort by fail_count so we use healthier accounts first
+    enabled_accounts.sort(key=lambda a: ACCOUNT_STATE[a["username"]]["fail_count"])
+    return enabled_accounts[0]
 
 
 class InstagramCommentScraperFixed:
-    def __init__(self, username, password):
-        self.username = username
-        self.password = password
+    def __init__(self, accounts):
+        self.accounts = accounts
         self.session_id = None
         self.csrf_token = None
         self.cookies = {}
         self.scraped_users = {}
+        self.driver = None
+        self.current_account = None
+
+    # ============== SELENIUM DRIVER HELPERS ===================
+
+    def init_driver(self):
+        """Initialize undetected Chrome driver."""
+        try:
+            options = uc.ChromeOptions()
+            options.add_argument("--disable-blink-features=AutomationControlled")
+            options.add_argument("--disable-dev-shm-usage")
+            options.add_argument("--no-sandbox")
+            options.add_argument("--disable-gpu")
+            options.add_argument("--window-size=1920,1080")
+            options.add_argument("--disable-extensions")
+            options.add_argument("--disable-popup-blocking")
+
+            self.driver = uc.Chrome(options=options)
+            self.driver.delete_all_cookies()
+            print("✅ Chrome driver initialized successfully")
+        except WebDriverException as e:
+            print(f"❌ Failed to initialize Chrome driver: {e}")
+            self.driver = None
+
+    def close_driver(self):
+        if self.driver:
+            try:
+                self.driver.quit()
+            except Exception:
+                pass
+            self.driver = None
+
+    # ============== HTTP HEADERS ===================
 
     def get_headers(self):
         headers = {
@@ -1125,157 +118,149 @@ class InstagramCommentScraperFixed:
             headers["X-CSRFToken"] = self.csrf_token
         return headers
 
+    # ============== LOGIN VIA SELENIUM ===================
+
     async def login(self):
         """
-        Try to log in with the current account.
-        Returns dict: {ok: bool, error_code: str|None, message: str}
+        Login using Selenium undetected_chromedriver.
+        Rotate through accounts until one succeeds.
         """
         print("=" * 60)
-        print(f"🔐 Logging in to Instagram USING PROXY as {self.username}...")
+        print("🔐 Logging in to Instagram USING SELENIUM with account rotation...")
         print("=" * 60)
 
-        connector = aiohttp.TCPConnector(ssl=False)
-        timeout = aiohttp.ClientTimeout(total=30)
+        if not ACCOUNT_STATE:
+            init_account_state()
+
+        # Initialize driver once
+        self.init_driver()
+        if not self.driver:
+            print("❌ Cannot start Selenium driver; aborting login.")
+            return False
 
         try:
-            async with aiohttp.ClientSession(
-                connector=connector,
-                timeout=timeout,
-                trust_env=True
-            ) as session:
-                # ---- STEP 1: GET LOGIN PAGE ----
+            while True:
+                account = get_next_account()
+                if not account:
+                    print("❌ No available accounts (all disabled).")
+                    return False
+
+                username = account["username"]
+                password = account["password"]
+                self.current_account = username
+
+                print(f"\n🎯 Selected account for this run: {username}")
+                print("=" * 60)
+                print(f"🔐 Logging in as {username}...")
+                print("=" * 60)
+
                 try:
-                    async with session.get(
-                        "https://www.instagram.com/accounts/login/",
-                        headers=self.get_headers(),
-                        **proxy_kwargs(),
-                    ) as resp:
-                        if resp.status != 200:
-                            msg = f"Failed to open login page: HTTP {resp.status}"
-                            print("❌", msg)
-                            return {"ok": False, "error_code": "http_error", "message": msg}
+                    self.driver.get("https://www.instagram.com/accounts/login/")
+                    # Wait for username field
+                    WebDriverWait(self.driver, 30).until(
+                        EC.presence_of_element_located((By.NAME, "username"))
+                    )
 
-                        # store initial cookies
-                        for cookie in resp.cookies.values():
-                            self.cookies[cookie.key] = cookie.value
+                    # Fill login form
+                    user_input = self.driver.find_element(By.NAME, "username")
+                    pass_input = self.driver.find_element(By.NAME, "password")
 
-                        self.csrf_token = self.cookies.get("csrftoken")
+                    user_input.clear()
+                    pass_input.clear()
+                    user_input.send_keys(username)
+                    pass_input.send_keys(password)
 
-                except Exception as e:
-                    msg = f"Exception opening login page: {repr(e)}"
-                    print("❌", msg)
-                    return {"ok": False, "error_code": "network_error", "message": msg}
+                    # Click login button
+                    login_btn = self.driver.find_element(By.XPATH, "//button[@type='submit']")
+                    login_btn.click()
 
-                if not self.csrf_token:
-                    msg = "Failed to retrieve CSRF token"
-                    print("❌", msg)
-                    return {"ok": False, "error_code": "no_csrf", "message": msg}
+                    # Wait for either success (cookie) or challenge
+                    def session_or_challenge(drv):
+                        current_url = drv.current_url
+                        # If checkpoint/challenge page
+                        if "challenge" in current_url or "two_factor" in current_url:
+                            return "challenge"
+                        cookie = drv.get_cookie("sessionid")
+                        if cookie and cookie.get("value"):
+                            return "session"
+                        return False
 
-                timestamp = int(time.time())
-                enc_password = f"#PWD_INSTAGRAM_BROWSER:0:{timestamp}:{self.password}"
+                    try:
+                        res = WebDriverWait(self.driver, 40).until(session_or_challenge)
+                    except TimeoutException:
+                        res = None
 
-                payload = {
-                    "username": self.username,
-                    "enc_password": enc_password,
-                    "queryParams": "{}",
-                    "optIntoOneTap": "false"
-                }
+                    if res == "challenge":
+                        print(f"⚠️ Account {username} hit checkpoint / 2FA / challenge.")
+                        ACCOUNT_STATE[username]["fail_count"] += 1
+                        ACCOUNT_STATE[username]["last_error"] = "checkpoint_or_2fa"
+                        # Disable after 1 challenge to avoid lock
+                        ACCOUNT_STATE[username]["disabled"] = True
+                        continue
 
-                headers = self.get_headers()
-                headers["Content-Type"] = "application/x-www-form-urlencoded"
+                    # Check for login error message on page
+                    page_source = self.driver.page_source.lower()
+                    if (
+                        "incorrect password" in page_source
+                        or "sorry, your password was incorrect" in page_source
+                    ):
+                        print(f"❌ Incorrect password for {username}.")
+                        ACCOUNT_STATE[username]["fail_count"] += 1
+                        ACCOUNT_STATE[username]["last_error"] = "bad_password"
+                        if ACCOUNT_STATE[username]["fail_count"] >= 3:
+                            ACCOUNT_STATE[username]["disabled"] = True
+                        continue
 
-                # ---- STEP 2: LOGIN POST ----
-                try:
-                    async with session.post(
-                        "https://www.instagram.com/accounts/login/ajax/",
-                        data=payload,
-                        headers=headers,
-                        **proxy_kwargs(),
-                    ) as resp:
-                        text = await resp.text()
-                        http_status = resp.status
+                    # Check cookies
+                    sess_cookie = self.driver.get_cookie("sessionid")
+                    csrf_cookie = self.driver.get_cookie("csrftoken")
 
-                        # Try parse JSON if possible
-                        try:
-                            data = json.loads(text)
-                        except Exception:
-                            data = {}
+                    if not sess_cookie or not sess_cookie.get("value"):
+                        print(
+                            "❌ Login failed: No 'sessionid' cookie; "
+                            "IG did not fully authenticate this session."
+                        )
+                        ACCOUNT_STATE[username]["fail_count"] += 1
+                        ACCOUNT_STATE[username]["last_error"] = "no_sessionid"
+                        if ACCOUNT_STATE[username]["fail_count"] >= 3:
+                            ACCOUNT_STATE[username]["disabled"] = True
+                        continue
 
-                        if http_status != 200:
-                            msg = f"Login HTTP error: {http_status} body={text[:400]}"
-                            print("❌", msg)
-                            error_code = data.get("message") or "http_error"
-                            return {
-                                "ok": False,
-                                "error_code": error_code,
-                                "message": msg,
-                            }
+                    # SUCCESS
+                    self.cookies = {c["name"]: c["value"] for c in self.driver.get_cookies()}
+                    self.session_id = self.cookies.get("sessionid")
+                    self.csrf_token = self.cookies.get("csrftoken") or (
+                        csrf_cookie and csrf_cookie.get("value")
+                    )
 
-                        # Instagram specific flags
-                        if data.get("two_factor_required"):
-                            msg = "Two-factor required for this account."
-                            print("❌", msg)
-                            return {
-                                "ok": False,
-                                "error_code": "two_factor_required",
-                                "message": msg,
-                            }
+                    print(f"✅ Login successful as {username}")
+                    print(f"Session ID: {self.session_id[:20]}...")
 
-                        if data.get("message") == "checkpoint_required":
-                            msg = f"Checkpoint required. Data: {data}"
-                            print("❌", msg)
-                            return {
-                                "ok": False,
-                                "error_code": "checkpoint_required",
-                                "message": msg,
-                            }
+                    # Reset account fail state
+                    ACCOUNT_STATE[username]["fail_count"] = 0
+                    ACCOUNT_STATE[username]["last_error"] = None
 
-                        if not data.get("authenticated"):
-                            msg = f"Not authenticated: {data}"
-                            print("❌", msg)
-                            return {
-                                "ok": False,
-                                "error_code": "not_authenticated",
-                                "message": msg,
-                            }
+                    return True
 
-                        # Merge cookies, get sessionid
-                        for cookie in resp.cookies.values():
-                            self.cookies[cookie.key] = cookie.value
+                except (
+                    TimeoutException,
+                    NoSuchElementException,
+                    WebDriverException,
+                    NoSuchWindowException,
+                ) as e:
+                    print(f"❌ Login error for {username}: {e}")
+                    ACCOUNT_STATE[username]["fail_count"] += 1
+                    ACCOUNT_STATE[username]["last_error"] = str(e)
+                    if ACCOUNT_STATE[username]["fail_count"] >= 3:
+                        ACCOUNT_STATE[username]["disabled"] = True
+                    # Try next account
+                    continue
 
-                        self.session_id = self.cookies.get("sessionid")
-                        self.csrf_token = self.cookies.get("csrftoken", self.csrf_token)
+        finally:
+            # Close Selenium browser; cookies are already copied
+            self.close_driver()
 
-                        if not self.session_id:
-                            msg = "Login OK but no sessionid cookie."
-                            print("❌", msg)
-                            return {
-                                "ok": False,
-                                "error_code": "no_sessionid",
-                                "message": msg,
-                            }
-
-                        print(f"✅ Login successful as {self.username}")
-                        print(f"Session ID: {self.session_id[:20]}...")
-                        return {"ok": True, "error_code": None, "message": "login_ok"}
-
-                except Exception as e:
-                    msg = f"Exception during login POST: {repr(e)}"
-                    print("❌", msg)
-                    return {
-                        "ok": False,
-                        "error_code": "network_error",
-                        "message": msg,
-                    }
-
-        except Exception as e:
-            msg = f"Fatal login session error: {repr(e)}"
-            print("❌", msg)
-            return {
-                "ok": False,
-                "error_code": "session_error",
-                "message": msg,
-            }
+    # ============== BIO HELPERS ===================
 
     def extract_emails_from_bio(self, text):
         if not text:
@@ -1285,11 +270,69 @@ class InstagramCommentScraperFixed:
     def extract_phones_from_bio(self, text):
         if not text:
             return []
-        pattern = r'\+?\d{1,4}?[-.\s]?\(?\d{1,3}\)?[-.\s]?\d{1,4}[-.\s]?\d{1,9}'
+        pattern = r"\+?\d{1,4}?[-.\s]?\(?\d{1,3}\)?[-.\s]?\d{1,4}[-.\s]?\d{1,9}"
         return re.findall(pattern, text)
 
+    # ============== PROFILE SCRAPING ===================
+
+    async def get_user_profile(self, session, username, semaphore):
+        async with semaphore:
+            if username in self.scraped_users:
+                return self.scraped_users[username]
+
+            url = f"https://www.instagram.com/api/v1/users/web_profile_info/?username={username}"
+            try:
+                async with session.get(url, headers=self.get_headers()) as resp:
+                    if resp.status != 200:
+                        print(f"⚠️ Skipped {username} (status {resp.status})")
+                        return self.create_empty_profile(username)
+
+                    data = await resp.json()
+                    user = data.get("data", {}).get("user", {})
+                    if not user:
+                        return self.create_empty_profile(username)
+
+                    bio = user.get("biography", "")
+                    bio_emails = self.extract_emails_from_bio(bio)
+                    bio_phones = self.extract_phones_from_bio(bio)
+
+                    full_name = user.get("full_name", "").strip()
+                    parts = full_name.split(" ", 1)
+                    first_name = parts[0] if parts else ""
+                    last_name = parts[1] if len(parts) > 1 else ""
+
+                    email = bio_emails[0] if bio_emails else ""
+                    phone = bio_phones[0] if bio_phones else ""
+
+                    profile = {
+                        "username": username,
+                        "email": email,
+                        "phone": phone,
+                        "madid": str(uuid.uuid4()),
+                        "fn": first_name,
+                        "ln": last_name,
+                        "zip": "",
+                        "ct": "",
+                        "st": "",
+                        "country": "",
+                        "dob": "",
+                        "doby": "",
+                        "gen": "",
+                        "age": "",
+                        "uid": user.get("id", ""),
+                        "value": "",
+                        "fbid": user.get("fbid", ""),
+                    }
+
+                    self.scraped_users[username] = profile
+                    await asyncio.sleep(1.2)
+                    return profile
+
+            except Exception as e:
+                print(f"❌ Error fetching {username}: {str(e)}")
+                return self.create_empty_profile(username)
+
     def create_empty_profile(self, username):
-        """Return a default profile dict when lookup fails."""
         return {
             "username": username,
             "email": "",
@@ -1307,72 +350,10 @@ class InstagramCommentScraperFixed:
             "age": "",
             "uid": "",
             "value": "",
-            "fbid": ""
+            "fbid": "",
         }
 
-    async def get_user_profile(self, session, username, semaphore):
-        async with semaphore:
-            if username in self.scraped_users:
-                return self.scraped_users[username]
-
-            url = f"https://www.instagram.com/api/v1/users/web_profile_info/?username={username}"
-            try:
-                async with session.get(
-                    url,
-                    headers=self.get_headers(),
-                    **proxy_kwargs(),
-                ) as resp:
-                    if resp.status != 200:
-                        print(f"⚠️ Skipped {username} (status {resp.status})")
-                        profile = self.create_empty_profile(username)
-                        self.scraped_users[username] = profile
-                        return profile
-
-                    data = await resp.json()
-                    user = data.get("data", {}).get("user", {})
-                    if not user:
-                        profile = self.create_empty_profile(username)
-                        self.scraped_users[username] = profile
-                        return profile
-
-                    bio = user.get("biography", "") or ""
-                    bio_emails = self.extract_emails_from_bio(bio)
-                    bio_phones = self.extract_phones_from_bio(bio)
-
-                    full_name = (user.get("full_name") or "").strip()
-                    parts = full_name.split(" ", 1)
-                    first_name = parts[0] if parts else ""
-                    last_name = parts[1] if len(parts) > 1 else ""
-
-                    profile = {
-                        "username": username,
-                        "email": ",".join(bio_emails),
-                        "phone": ",".join(bio_phones),
-                        "madid": str(uuid.uuid4()),
-                        "fn": first_name,
-                        "ln": last_name,
-                        "zip": "",
-                        "ct": "",
-                        "st": "",
-                        "country": user.get("country_block", ""),
-                        "dob": "",
-                        "doby": "",
-                        "gen": "",
-                        "age": "",
-                        "uid": user.get("id", ""),
-                        "value": "",
-                        "fbid": user.get("fbid_v2", "")
-                    }
-
-                    self.scraped_users[username] = profile
-                    await asyncio.sleep(1.2)  # be gentle
-                    return profile
-
-            except Exception as e:
-                print(f"❌ Error fetching {username}: {repr(e)}")
-                profile = self.create_empty_profile(username)
-                self.scraped_users[username] = profile
-                return profile
+    # ============== COMMENT SCRAPING ===================
 
     def get_post_shortcode(self, url):
         parts = url.rstrip("/").split("/")
@@ -1388,74 +369,56 @@ class InstagramCommentScraperFixed:
         connector = aiohttp.TCPConnector(ssl=False)
         timeout = aiohttp.ClientTimeout(total=30)
 
-        try:
-            async with aiohttp.ClientSession(
-                connector=connector,
-                timeout=timeout,
-                cookies=self.cookies,
-                trust_env=True
-            ) as session:
-                while has_next:
-                    if max_comments and len(comments) >= max_comments:
+        async with aiohttp.ClientSession(
+            connector=connector, timeout=timeout, cookies=self.cookies
+        ) as session:
+            while has_next:
+                if max_comments and len(comments) >= max_comments:
+                    break
+
+                variables = {"shortcode": shortcode, "first": 50}
+                if after:
+                    variables["after"] = after
+                url = (
+                    "https://www.instagram.com/graphql/query/"
+                    "?query_hash=bc3296d1ce80a24b1b6e40b1e72903f5"
+                    f"&variables={quote(json.dumps(variables))}"
+                )
+
+                async with session.get(url, headers=self.get_headers()) as resp:
+                    if resp.status != 200:
+                        print(f"❌ Comment fetch failed: {resp.status}")
                         break
-
-                    variables = {"shortcode": shortcode, "first": 50}
-                    if after:
-                        variables["after"] = after
-
-                    url = (
-                        "https://www.instagram.com/graphql/query/"
-                        "?query_hash=bc3296d1ce80a24b1b6e40b1e72903f5"
-                        f"&variables={quote(json.dumps(variables))}"
+                    data = await resp.json()
+                    edges = (
+                        data.get("data", {})
+                        .get("shortcode_media", {})
+                        .get("edge_media_to_parent_comment", {})
+                        .get("edges", [])
                     )
-
-                    try:
-                        async with session.get(
-                            url,
-                            headers=self.get_headers(),
-                            **proxy_kwargs(),
-                        ) as resp:
-                            if resp.status != 200:
-                                print(f"❌ Comment fetch failed: {resp.status}")
-                                break
-
-                            data = await resp.json()
-                            media = data.get("data", {}).get("shortcode_media", {})
-                            if not media:
-                                print("❌ No media data in response (maybe private or removed).")
-                                break
-
-                            edge_root = media.get("edge_media_to_parent_comment", {})
-                            edges = edge_root.get("edges", [])
-
-                            for edge in edges:
-                                node = edge.get("node", {})
-                                owner = node.get("owner", {})
-                                comments.append({
-                                    "uid": owner.get("id", ""),
-                                    "username": owner.get("username", ""),
-                                    "commentText": node.get("text", ""),
-                                    "timestamp": datetime.fromtimestamp(
-                                        node.get("created_at", 0)
-                                    ).isoformat(),
-                                })
-
-                                if max_comments and len(comments) >= max_comments:
-                                    break
-
-                            page = edge_root.get("page_info", {})
-                            has_next = page.get("has_next_page", False)
-                            after = page.get("end_cursor")
-
-                            print(f"📊 {len(comments)} comments scraped so far...")
-                            await asyncio.sleep(2)
-
-                    except Exception as e:
-                        print(f"❌ Error while fetching comments page: {repr(e)}")
-                        break
-
-        except Exception as e:
-            print(f"❌ Fatal error in scrape_post_comments: {repr(e)}")
+                    for edge in edges:
+                        node = edge.get("node", {})
+                        owner = node.get("owner", {})
+                        comments.append(
+                            {
+                                "uid": owner.get("id", ""),  # User ID of the commenter
+                                "username": owner.get("username", ""),  # Commenter's username
+                                "commentText": node.get("text", ""),  # Comment text
+                                "timestamp": datetime.fromtimestamp(
+                                    node.get("created_at", 0)
+                                ).isoformat(),  # Time of comment
+                            }
+                        )
+                    page = (
+                        data.get("data", {})
+                        .get("shortcode_media", {})
+                        .get("edge_media_to_parent_comment", {})
+                        .get("page_info", {})
+                    )
+                    has_next = page.get("has_next_page", False)
+                    after = page.get("end_cursor")
+                    print(f"📊 {len(comments)} comments scraped so far...")
+                    await asyncio.sleep(2)
 
         print(f"✅ Total comments: {len(comments)}")
         return comments
@@ -1464,25 +427,19 @@ class InstagramCommentScraperFixed:
         usernames = list({c["username"] for c in comments if c.get("username")})
         print(f"\n👥 Found {len(usernames)} unique commenters")
 
-        if not usernames:
-            return []
-
         semaphore = asyncio.Semaphore(max_concurrent)
         connector = aiohttp.TCPConnector(ssl=False)
-        timeout = aiohttp.ClientTimeout(total=60)
+        timeout = aiohttp.ClientTimeout(total=30)
 
         async with aiohttp.ClientSession(
-            connector=connector,
-            timeout=timeout,
-            cookies=self.cookies,
-            trust_env=True
+            connector=connector, timeout=timeout, cookies=self.cookies
         ) as session:
             tasks = [self.get_user_profile(session, u, semaphore) for u in usernames]
             profiles = await asyncio.gather(*tasks)
         return profiles
 
 
-# ================== OUTPUT HELPERS ==================
+# ============== CSV & PUBLIC API ===================
 
 
 def save_to_csv(profiles, filename):
@@ -1490,91 +447,99 @@ def save_to_csv(profiles, filename):
         print("❌ No profiles to save.")
         return
 
+    # Step 1: Write profiles to CSV
     fieldnames = list(profiles[0].keys())
     with open(filename, "w", newline="", encoding="utf-8") as f:
         writer = csv.DictWriter(f, fieldnames=fieldnames)
         writer.writeheader()
         writer.writerows(profiles)
 
+    # Step 2: Remove first column
     df = pd.read_csv(filename)
-    df = df.iloc[:, 1:]
+    df = df.iloc[:, 1:]  # Drop the first column
     df.to_csv(filename, index=False)
 
     print(f"\n✅ Profiles saved to {filename} (first column removed)")
 
 
-# ================== MAIN PIPELINE ==================
-
-
-async def run_scrape_for_post(post_url: str, max_comments: int | None = None):
+async def run_scrape_for_post(post_url: str, max_comments: int | None = None) -> dict:
     """
-    High-level pipeline:
-      - pick random account (auto-skipping disabled)
-      - try login; if fail, mark account + optionally try others
-      - scrape comments + profile data
-      - write CSV + JSON
-      - return a clean result dict (safe for Flask)
+    Public function used by app.py:
+    from scraper import run_scrape_for_post
+
+    Returns a JSON-serializable dict:
+    {
+        "ok": True/False,
+        "message": "...",
+        "shortcode": ...,
+        "post_url": ...,
+        "comments_count": ...,
+        "profiles_count": ...,
+        "csv_file": "...",
+        "json_file": "...",
+        "data": {
+            "comments": [...],
+            "profiles": [...]
+        }
+    }
     """
     try:
-        last_error = None
+        scraper = InstagramCommentScraperFixed(INSTAGRAM_ACCOUNTS)
 
-        for attempt in range(len(INSTAGRAM_ACCOUNTS)):
-            username, password = get_random_account()
-            scraper = InstagramCommentScraperFixed(username, password)
-
-            login_result = await scraper.login()
-            if not login_result["ok"]:
-                mark_account_failure(
-                    username,
-                    login_result.get("error_code") or "login_failed",
-                    login_result.get("message") or "",
-                )
-                last_error = f"{username}: {login_result.get('message')}"
-                print(f"⚠️ Login failed for {username}, trying another account...")
-                continue
-
-            # ✅ Login OK, proceed
-            shortcode = scraper.get_post_shortcode(post_url)
-            if not shortcode:
-                return {
-                    "ok": False,
-                    "message": "Invalid Instagram post URL.",
-                }
-
-            comments = await scraper.scrape_post_comments(shortcode, max_comments)
-            profiles = await scraper.scrape_commenters_profiles(comments, max_concurrent=5)
-
-            csv_file = f"instagram_{shortcode}_profiles.csv"
-            json_file = f"instagram_{shortcode}_comments.json"
-
-            save_to_csv(profiles, csv_file)
-            with open(json_file, "w", encoding="utf-8") as f:
-                json.dump(
-                    {"comments": comments, "profiles": profiles},
-                    f,
-                    indent=2,
-                    ensure_ascii=False
-                )
-
+        # 1) Login
+        logged_in = await scraper.login()
+        if not logged_in:
             return {
-                "ok": True,
-                "message": f"Scrape complete using account {username}.",
-                "shortcode": shortcode,
-                "total_comments": len(comments),
-                "total_profiles": len(profiles),
-                "csv_file": csv_file,
-                "json_file": json_file,
+                "ok": False,
+                "message": "Login failed for all accounts. Check credentials / challenges / IP.",
             }
 
-        # If we reach here, all accounts failed
+        # 2) Get shortcode
+        shortcode = scraper.get_post_shortcode(post_url)
+        if not shortcode:
+            return {"ok": False, "message": "Invalid Instagram post URL."}
+
+        # 3) Scrape comments
+        comments = await scraper.scrape_post_comments(shortcode, max_comments)
+
+        # 4) Scrape commenter profiles
+        profiles = await scraper.scrape_commenters_profiles(comments, max_concurrent=5)
+
+        # 5) Save files
+        csv_file = f"instagram_{shortcode}_profiles.csv"
+        json_file = f"instagram_{shortcode}_comments.json"
+
+        save_to_csv(profiles, csv_file)
+        with open(json_file, "w", encoding="utf-8") as f:
+            json.dump({"comments": comments, "profiles": profiles}, f, indent=2, ensure_ascii=False)
+
         return {
-            "ok": False,
-            "message": f"All accounts failed to login. Last error: {last_error}",
+            "ok": True,
+            "message": "Scraping completed successfully.",
+            "shortcode": shortcode,
+            "post_url": post_url,
+            "comments_count": len(comments),
+            "profiles_count": len(profiles),
+            "csv_file": csv_file,
+            "json_file": json_file,
+            "data": {
+                "comments": comments,
+                "profiles": profiles,
+            },
         }
 
     except Exception as e:
-        print(f"❌ Unexpected error in run_scrape_for_post: {repr(e)}")
-        return {
-            "ok": False,
-            "message": f"Unexpected error in scraper: {str(e)}",
-        }
+        print("❌ Error in run_scrape_for_post:", e)
+        return {"ok": False, "message": str(e)}
+
+
+# Optional CLI usage for testing
+if __name__ == "__main__":
+    async def _test():
+        url = input("Enter Instagram post URL: ").strip()
+        max_c = input("Max comments (blank for all): ").strip()
+        max_c = int(max_c) if max_c.isdigit() else None
+        res = await run_scrape_for_post(url, max_c)
+        print(json.dumps(res, indent=2, ensure_ascii=False))
+
+    asyncio.run(_test())

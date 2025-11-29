@@ -6,6 +6,7 @@ from scraper import run_scrape_for_post
 app = Flask(__name__)
 
 
+
 @app.route("/")
 def index():
     # Renders templates/index.html

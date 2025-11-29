@@ -9,7 +9,7 @@ from datetime import datetime
 from urllib.parse import quote
 import pandas as pd
 
-import undetected_chromedriver as uc
+from selenium import webdriver
 from selenium.webdriver.common.by import By
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
@@ -55,7 +55,6 @@ def get_next_account():
     ]
     if not enabled_accounts:
         return None
-    # sort by fail_count so we use healthier accounts first
     enabled_accounts.sort(key=lambda a: ACCOUNT_STATE[a["username"]]["fail_count"])
     return enabled_accounts[0]
 
@@ -73,9 +72,9 @@ class InstagramCommentScraperFixed:
     # ============== SELENIUM DRIVER HELPERS ===================
 
     def init_driver(self):
-        """Initialize undetected Chrome driver."""
+        """Initialize standard Selenium Chrome driver (Python 3.13 friendly)."""
         try:
-            options = uc.ChromeOptions()
+            options = webdriver.ChromeOptions()
             options.add_argument("--disable-blink-features=AutomationControlled")
             options.add_argument("--disable-dev-shm-usage")
             options.add_argument("--no-sandbox")
@@ -84,9 +83,10 @@ class InstagramCommentScraperFixed:
             options.add_argument("--disable-extensions")
             options.add_argument("--disable-popup-blocking")
 
-            self.driver = uc.Chrome(options=options)
+            # Selenium 4+ uses Selenium Manager to auto-manage chromedriver
+            self.driver = webdriver.Chrome(options=options)
             self.driver.delete_all_cookies()
-            print("✅ Chrome driver initialized successfully")
+            print("✅ Chrome driver initialized successfully (standard Selenium)")
         except WebDriverException as e:
             print(f"❌ Failed to initialize Chrome driver: {e}")
             self.driver = None
@@ -122,7 +122,7 @@ class InstagramCommentScraperFixed:
 
     async def login(self):
         """
-        Login using Selenium undetected_chromedriver.
+        Login using Selenium Chrome.
         Rotate through accounts until one succeeds.
         """
         print("=" * 60)
@@ -156,7 +156,6 @@ class InstagramCommentScraperFixed:
 
                 try:
                     self.driver.get("https://www.instagram.com/accounts/login/")
-                    # Wait for username field
                     WebDriverWait(self.driver, 30).until(
                         EC.presence_of_element_located((By.NAME, "username"))
                     )
@@ -177,7 +176,6 @@ class InstagramCommentScraperFixed:
                     # Wait for either success (cookie) or challenge
                     def session_or_challenge(drv):
                         current_url = drv.current_url
-                        # If checkpoint/challenge page
                         if "challenge" in current_url or "two_factor" in current_url:
                             return "challenge"
                         cookie = drv.get_cookie("sessionid")
@@ -194,11 +192,10 @@ class InstagramCommentScraperFixed:
                         print(f"⚠️ Account {username} hit checkpoint / 2FA / challenge.")
                         ACCOUNT_STATE[username]["fail_count"] += 1
                         ACCOUNT_STATE[username]["last_error"] = "checkpoint_or_2fa"
-                        # Disable after 1 challenge to avoid lock
                         ACCOUNT_STATE[username]["disabled"] = True
                         continue
 
-                    # Check for login error message on page
+                    # Check for login error text
                     page_source = self.driver.page_source.lower()
                     if (
                         "incorrect password" in page_source
@@ -236,7 +233,6 @@ class InstagramCommentScraperFixed:
                     print(f"✅ Login successful as {username}")
                     print(f"Session ID: {self.session_id[:20]}...")
 
-                    # Reset account fail state
                     ACCOUNT_STATE[username]["fail_count"] = 0
                     ACCOUNT_STATE[username]["last_error"] = None
 
@@ -253,11 +249,9 @@ class InstagramCommentScraperFixed:
                     ACCOUNT_STATE[username]["last_error"] = str(e)
                     if ACCOUNT_STATE[username]["fail_count"] >= 3:
                         ACCOUNT_STATE[username]["disabled"] = True
-                    # Try next account
                     continue
 
         finally:
-            # Close Selenium browser; cookies are already copied
             self.close_driver()
 
     # ============== BIO HELPERS ===================
@@ -401,12 +395,12 @@ class InstagramCommentScraperFixed:
                         owner = node.get("owner", {})
                         comments.append(
                             {
-                                "uid": owner.get("id", ""),  # User ID of the commenter
-                                "username": owner.get("username", ""),  # Commenter's username
-                                "commentText": node.get("text", ""),  # Comment text
+                                "uid": owner.get("id", ""),
+                                "username": owner.get("username", ""),
+                                "commentText": node.get("text", ""),
                                 "timestamp": datetime.fromtimestamp(
                                     node.get("created_at", 0)
-                                ).isoformat(),  # Time of comment
+                                ).isoformat(),
                             }
                         )
                     page = (
@@ -447,14 +441,12 @@ def save_to_csv(profiles, filename):
         print("❌ No profiles to save.")
         return
 
-    # Step 1: Write profiles to CSV
     fieldnames = list(profiles[0].keys())
     with open(filename, "w", newline="", encoding="utf-8") as f:
         writer = csv.DictWriter(f, fieldnames=fieldnames)
         writer.writeheader()
         writer.writerows(profiles)
 
-    # Step 2: Remove first column
     df = pd.read_csv(filename)
     df = df.iloc[:, 1:]  # Drop the first column
     df.to_csv(filename, index=False)
@@ -466,27 +458,10 @@ async def run_scrape_for_post(post_url: str, max_comments: int | None = None) ->
     """
     Public function used by app.py:
     from scraper import run_scrape_for_post
-
-    Returns a JSON-serializable dict:
-    {
-        "ok": True/False,
-        "message": "...",
-        "shortcode": ...,
-        "post_url": ...,
-        "comments_count": ...,
-        "profiles_count": ...,
-        "csv_file": "...",
-        "json_file": "...",
-        "data": {
-            "comments": [...],
-            "profiles": [...]
-        }
-    }
     """
     try:
         scraper = InstagramCommentScraperFixed(INSTAGRAM_ACCOUNTS)
 
-        # 1) Login
         logged_in = await scraper.login()
         if not logged_in:
             return {
@@ -494,24 +469,24 @@ async def run_scrape_for_post(post_url: str, max_comments: int | None = None) ->
                 "message": "Login failed for all accounts. Check credentials / challenges / IP.",
             }
 
-        # 2) Get shortcode
         shortcode = scraper.get_post_shortcode(post_url)
         if not shortcode:
             return {"ok": False, "message": "Invalid Instagram post URL."}
 
-        # 3) Scrape comments
         comments = await scraper.scrape_post_comments(shortcode, max_comments)
-
-        # 4) Scrape commenter profiles
         profiles = await scraper.scrape_commenters_profiles(comments, max_concurrent=5)
 
-        # 5) Save files
         csv_file = f"instagram_{shortcode}_profiles.csv"
         json_file = f"instagram_{shortcode}_comments.json"
 
         save_to_csv(profiles, csv_file)
         with open(json_file, "w", encoding="utf-8") as f:
-            json.dump({"comments": comments, "profiles": profiles}, f, indent=2, ensure_ascii=False)
+            json.dump(
+                {"comments": comments, "profiles": profiles},
+                f,
+                indent=2,
+                ensure_ascii=False,
+            )
 
         return {
             "ok": True,
@@ -533,13 +508,3 @@ async def run_scrape_for_post(post_url: str, max_comments: int | None = None) ->
         return {"ok": False, "message": str(e)}
 
 
-# Optional CLI usage for testing
-if __name__ == "__main__":
-    async def _test():
-        url = input("Enter Instagram post URL: ").strip()
-        max_c = input("Max comments (blank for all): ").strip()
-        max_c = int(max_c) if max_c.isdigit() else None
-        res = await run_scrape_for_post(url, max_c)
-        print(json.dumps(res, indent=2, ensure_ascii=False))
-
-    asyncio.run(_test())

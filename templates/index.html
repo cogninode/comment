@@ -1,0 +1,393 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <title>Instagram Comment Scraper</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <style>
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+      font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    }
+
+    body {
+      min-height: 100vh;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      background: #0f172a;
+      padding: 20px;
+    }
+
+    .card {
+      width: 100%;
+      max-width: 480px;
+      background: #020617;
+      border-radius: 16px;
+      padding: 24px 22px 20px;
+      box-shadow: 0 18px 40px rgba(0, 0, 0, 0.55);
+      border: 1px solid #1f2937;
+      color: #e5e7eb;
+    }
+
+    .card-header {
+      margin-bottom: 18px;
+    }
+
+    .title-row {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      margin-bottom: 4px;
+    }
+
+    .logo-circle {
+      width: 30px;
+      height: 30px;
+      border-radius: 999px;
+      background: radial-gradient(circle at 30% 0%, #fdf497 0, #fdf497 5%, #fd5949 45%, #d6249f 60%, #285AEB 90%);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-weight: 700;
+      font-size: 15px;
+      color: white;
+    }
+
+    .title {
+      font-size: 20px;
+      font-weight: 600;
+      letter-spacing: 0.02em;
+    }
+
+    .subtitle {
+      font-size: 12px;
+      color: #9ca3af;
+    }
+
+    .form {
+      display: flex;
+      flex-direction: column;
+      gap: 14px;
+      margin-top: 8px;
+    }
+
+    label {
+      font-size: 12px;
+      font-weight: 500;
+      color: #d1d5db;
+      margin-bottom: 4px;
+      display: block;
+    }
+
+    .input-group {
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+    }
+
+    input[type="text"],
+    input[type="number"] {
+      width: 100%;
+      border-radius: 10px;
+      border: 1px solid #374151;
+      background: #020617;
+      color: #f9fafb;
+      padding: 8px 10px;
+      font-size: 13px;
+      outline: none;
+      transition: border 0.18s ease, box-shadow 0.18s ease;
+    }
+
+    input[type="text"]:focus,
+    input[type="number"]:focus {
+      border-color: #4f46e5;
+      box-shadow: 0 0 0 1px #4f46e5aa;
+    }
+
+    .hint {
+      font-size: 11px;
+      color: #6b7280;
+    }
+
+    .button-row {
+      margin-top: 6px;
+      display: flex;
+      gap: 8px;
+      align-items: center;
+    }
+
+    button {
+      border: none;
+      border-radius: 999px;
+      padding: 9px 16px;
+      font-size: 13px;
+      font-weight: 500;
+      cursor: pointer;
+      background: linear-gradient(135deg, #4f46e5, #6366f1);
+      color: #f9fafb;
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      transition: transform 0.12s ease, box-shadow 0.12s ease, opacity 0.12s ease;
+      box-shadow: 0 10px 20px rgba(79, 70, 229, 0.45);
+    }
+
+    button:hover {
+      transform: translateY(-1px);
+      box-shadow: 0 12px 26px rgba(79, 70, 229, 0.65);
+    }
+
+    button:active {
+      transform: translateY(0);
+      box-shadow: 0 4px 14px rgba(79, 70, 229, 0.6);
+    }
+
+    button:disabled {
+      opacity: 0.55;
+      cursor: default;
+      transform: none;
+      box-shadow: none;
+    }
+
+    .btn-icon {
+      font-size: 16px;
+    }
+
+    .status-pill {
+      padding: 4px 9px;
+      border-radius: 999px;
+      font-size: 11px;
+      background: #111827;
+      border: 1px solid #1f2937;
+      color: #9ca3af;
+    }
+
+    .status-pill span.dot {
+      display: inline-block;
+      width: 7px;
+      height: 7px;
+      border-radius: 999px;
+      margin-right: 5px;
+      background: #4b5563;
+    }
+
+    .status-pill.running span.dot {
+      background: #22c55e;
+      box-shadow: 0 0 0 4px #22c55e33;
+    }
+
+    .log {
+      margin-top: 14px;
+      background: #020617;
+      border-radius: 10px;
+      border: 1px solid #111827;
+      padding: 8px 10px;
+      font-size: 11px;
+      max-height: 180px;
+      overflow-y: auto;
+      color: #d1d5db;
+    }
+
+    .log-line {
+      margin-bottom: 3px;
+      white-space: pre-wrap;
+      word-break: break-word;
+    }
+
+    .log-line span.tag {
+      display: inline-block;
+      font-size: 10px;
+      padding: 2px 6px;
+      border-radius: 999px;
+      background: #111827;
+      color: #9ca3af;
+      margin-right: 4px;
+    }
+
+    .log-line.ok span.tag {
+      background: #064e3b;
+      color: #6ee7b7;
+    }
+
+    .log-line.err span.tag {
+      background: #450a0a;
+      color: #fecaca;
+    }
+
+    .log-line strong {
+      color: #e5e7eb;
+    }
+
+    .footer-text {
+      font-size: 10px;
+      color: #6b7280;
+      margin-top: 8px;
+      text-align: right;
+    }
+
+    @media (max-width: 480px) {
+      .card {
+        padding: 20px 18px 16px;
+      }
+      .title {
+        font-size: 18px;
+      }
+    }
+  </style>
+</head>
+<body>
+  <div class="card">
+    <div class="card-header">
+      <div class="title-row">
+        <div class="logo-circle">IG</div>
+        <div>
+          <div class="title">Comment Scraper</div>
+          <div class="subtitle">Paste a post URL, scrape commenters & profiles.</div>
+        </div>
+      </div>
+    </div>
+
+    <form id="scrapeForm" class="form">
+      <div class="input-group">
+        <label for="postUrl">Instagram Post URL</label>
+        <input
+          type="text"
+          id="postUrl"
+          placeholder="https://www.instagram.com/p/XXXXXXXXX/"
+          required
+        />
+        <div class="hint">Supports /p/, /reel/ and /tv/ links.</div>
+      </div>
+
+      <div class="input-group">
+        <label for="maxComments">Max Comments (optional)</label>
+        <input
+          type="number"
+          id="maxComments"
+          min="1"
+          placeholder="Leave blank for all"
+        />
+        <div class="hint">To avoid blocks, you can limit the number of comments.</div>
+      </div>
+
+      <div class="button-row">
+        <button type="submit" id="startBtn">
+          <span class="btn-icon">▶</span>
+          <span>Start Scraping</span>
+        </button>
+        <div id="statusPill" class="status-pill">
+          <span class="dot"></span>
+          <span id="statusText">Idle</span>
+        </div>
+      </div>
+    </form>
+
+    <div id="log" class="log"></div>
+
+    <div class="footer-text">
+      Backend: <code>POST /scrape</code> (same origin).
+    </div>
+  </div>
+
+  <script>
+    const form = document.getElementById("scrapeForm");
+    const startBtn = document.getElementById("startBtn");
+    const statusPill = document.getElementById("statusPill");
+    const statusText = document.getElementById("statusText");
+    const logEl = document.getElementById("log");
+
+    function appendLog(message, type = "info") {
+      const line = document.createElement("div");
+      line.className = "log-line " + (type === "ok" ? "ok" : type === "err" ? "err" : "");
+      const tag = document.createElement("span");
+      tag.className = "tag";
+      tag.textContent = type === "ok" ? "OK" : type === "err" ? "ERR" : "LOG";
+      const text = document.createElement("span");
+      text.innerHTML = " " + message;
+      line.appendChild(tag);
+      line.appendChild(text);
+      logEl.appendChild(line);
+      logEl.scrollTop = logEl.scrollHeight;
+    }
+
+    function setRunning(isRunning) {
+      if (isRunning) {
+        statusPill.classList.add("running");
+        statusText.textContent = "Running...";
+        startBtn.disabled = true;
+      } else {
+        statusPill.classList.remove("running");
+        statusText.textContent = "Idle";
+        startBtn.disabled = false;
+      }
+    }
+
+    form.addEventListener("submit", async (e) => {
+      e.preventDefault();
+      const postUrl = document.getElementById("postUrl").value.trim();
+      const maxCommentsRaw = document.getElementById("maxComments").value.trim();
+
+      if (!postUrl) {
+        appendLog("Please enter a valid Instagram post URL.", "err");
+        return;
+      }
+
+      const payload = {
+        post_url: postUrl,
+        max_comments: maxCommentsRaw ? Number(maxCommentsRaw) : null,
+      };
+
+      appendLog("Starting scrape for: <strong>" + postUrl + "</strong>");
+      if (payload.max_comments) {
+        appendLog("Limiting to " + payload.max_comments + " comments.");
+      }
+
+      setRunning(true);
+
+      try {
+        const resp = await fetch("/scrape", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify(payload),
+        });
+
+        const data = await resp.json().catch(() => null);
+
+        if (!resp.ok || !data) {
+          appendLog("Request failed (HTTP " + resp.status + ")", "err");
+          setRunning(false);
+          return;
+        }
+
+        if (data.ok) {
+          appendLog("Scrape finished successfully.", "ok");
+          if (data.total_comments != null) {
+            appendLog("Total comments: " + data.total_comments, "ok");
+          }
+          if (data.total_profiles != null) {
+            appendLog("Total profiles: " + data.total_profiles, "ok");
+          }
+          if (data.csv_file) {
+            appendLog("CSV saved: " + data.csv_file, "ok");
+          }
+          if (data.json_file) {
+            appendLog("JSON saved: " + data.json_file, "ok");
+          }
+        } else {
+          appendLog(data.message || "Scrape failed (see server logs).", "err");
+        }
+      } catch (err) {
+        console.error(err);
+        appendLog("Network / fetch error: " + err.message, "err");
+      } finally {
+        setRunning(false);
+      }
+    });
+  </script>
+</body>
+</html>

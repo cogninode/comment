@@ -5,11 +5,8 @@ from scraper import run_scrape_for_post
 
 app = Flask(__name__)
 
-
-
 @app.route("/")
 def index():
-    # Renders templates/index.html
     return render_template("index.html")
 
 
@@ -21,7 +18,7 @@ def scrape():
         max_comments = data.get("max_comments")
 
         if not post_url:
-            return jsonify({"ok": False, "message": "post_url is required."}), 400
+            return jsonify({"ok": False, "message": "post_url is required."})
 
         if max_comments is not None:
             try:
@@ -31,17 +28,13 @@ def scrape():
             except (TypeError, ValueError):
                 max_comments = None
 
-        # Run the async scraper
         result = asyncio.run(run_scrape_for_post(post_url, max_comments))
 
-        status_code = 200 if result.get("ok") else 500
-        return jsonify(result), status_code
+        return jsonify(result)
 
     except Exception as e:
         print("❌ Error in /scrape:", e)
-        return jsonify({"ok": False, "message": str(e)}), 500
-
+        return jsonify({"ok": False, "message": str(e)})
 
 if __name__ == "__main__":
-    # Host on 0.0.0.0 if you want to access from network, here localhost:8000
     app.run(host="0.0.0.0", port=8000, debug=True)

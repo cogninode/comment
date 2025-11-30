@@ -3,7 +3,5 @@ aiohttp
 pandas
 requests
 beautifulsoup4
-asyncio
 urllib3
 python-dotenv
-undetected_chromedriver
